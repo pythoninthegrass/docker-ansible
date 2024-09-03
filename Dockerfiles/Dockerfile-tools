@@ -16,7 +16,7 @@ ENV PIP_DEFAULT_TIMEOUT=100
 
 # Install deps and generate requirements file
 RUN <<EOF
-#!/usr/bin/env bash
+#!/bin/bash
 set -eux
 
 apk add --update --no-cache curl python3-dev py3-pip gcc musl-dev libffi-dev openssl-dev
@@ -57,7 +57,7 @@ ENV PATH="/usr/local/bin:${HOME}/.local/bin:/bin:/usr/bin:/usr/share/doc:$PATH"
 
 # Add user and group
 RUN <<EOF
-#!/usr/bin/env bash
+#!/bin/bash
 set -eux
 
 # Add group if it doesn't exist
