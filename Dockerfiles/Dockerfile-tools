@@ -1,64 +1,104 @@
+# syntax=docker/dockerfile:1.7.0
+
 ARG VERSION
 
 # --------------------------------------------------------------------------------------------------
 # Builder Image
 # --------------------------------------------------------------------------------------------------
+
 FROM cytopia/ansible:${VERSION} as builder
-ARG VERSION
 
-RUN set -eux \
-	&& apk add --update --no-cache \
-		curl
+ENV VERSION=${VERSION}
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=off
+ENV PIP_DISABLE_PIP_VERSION_CHECK=on
+ENV PIP_DEFAULT_TIMEOUT=100
 
-# Python packages (copied to final image)
-RUN set -eux \
-	&& if [ "${VERSION}" = "2.5" ]; then \
-		pip3 install --no-cache-dir --no-compile dnspython mitogen==0.2.10; \
-	elif [ "${VERSION}" = "2.6" ]; then \
-		pip3 install --no-cache-dir --no-compile dnspython mitogen==0.2.10; \
-	elif [ "${VERSION}" = "2.7" ]; then \
-		pip3 install --no-cache-dir --no-compile dnspython mitogen==0.2.10; \
-	elif [ "${VERSION}" = "2.8" ]; then \
-		pip3 install --no-cache-dir --no-compile dnspython mitogen==0.2.10; \
-	elif [ "${VERSION}" = "2.9" ]; then \
-		pip3 install --no-cache-dir --no-compile dnspython mitogen==0.2.10; \
-	else \
-		pip3 install --no-cache-dir --no-compile dnspython mitogen; \
-	fi \
-	\
-	&& pip3 install --no-cache-dir --no-compile \
-		jmespath \
-	\
-	&& find /usr/lib/ -name '__pycache__' -print0 | xargs -0 -n1 rm -rf \
-	&& find /usr/lib/ -name '*.pyc' -print0 | xargs -0 -n1 rm -rf
+# Install deps and generate requirements file
+RUN <<EOF
+#!/usr/bin/env bash
+set -eux
 
-# Binaries (copied to final image)
-RUN set -eux \
-	&& if [ "$(uname -m)" = "aarch64" ]; then \
-		ARCH="arm64"; \
-	elif [ "$(uname -m)" = "x86_64" ]; then \
-		ARCH="amd64"; \
-	else \
-		fail; \
-	fi \
-	\
-	&& YQ="$( curl -L -sS --fail -o /dev/null -w %{url_effective} https://github.com/mikefarah/yq/releases/latest | sed 's/^.*\///g' )" \
-	\
-	&& curl -L -sS --fail "https://github.com/mikefarah/yq/releases/download/${YQ}/yq_linux_${ARCH}" > /usr/bin/yq \
-	&& chmod +x /usr/bin/yq \
-	\
-	&& yq --version
+apk add --update --no-cache curl python3-dev py3-pip gcc musl-dev libffi-dev openssl-dev
 
+echo "dnspython" > requirements.txt
+echo "jmespath" >> requirements.txt
+
+case "${VERSION}" in
+	"2.5" | "2.6" | "2.7" | "2.8" | "2.9")
+		echo "mitogen==0.2.10" >> requirements.txt
+		;;
+	*)
+		echo "mitogen" >> requirements.txt
+		;;
+esac
+EOF
+
+# Install and run pex
+RUN python -m pip install --no-cache-dir pex \
+	&& pex -r requirements.txt -o /ansible_tools.pex
 
 # --------------------------------------------------------------------------------------------------
 # Final Image
 # --------------------------------------------------------------------------------------------------
+
 FROM cytopia/ansible:${VERSION} as production
-ARG VERSION
+
+# Define uid/gid and user/group names
+ARG MY_USER=ansible
+ARG MY_GROUP=ansible
+ARG MY_UID=1000
+ARG MY_GID=1000
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=off
+ENV PIP_DISABLE_PIP_VERSION_CHECK=on
+ENV PIP_DEFAULT_TIMEOUT=100
+ENV PATH="/usr/local/bin:${HOME}/.local/bin:/bin:/usr/bin:/usr/share/doc:$PATH"
+
+# Add user and group
+RUN <<EOF
+#!/usr/bin/env bash
+set -eux
+
+# Add group if it doesn't exist
+if ! getent group ${MY_GROUP} > /dev/null 2>&1; then
+    addgroup -g ${MY_GID} ${MY_GROUP}
+fi
+
+# Add user if it doesn't exist
+if ! getent passwd ${MY_USER} > /dev/null 2>&1; then
+    adduser -h /home/ansible -s /bin/bash -G ${MY_GROUP} -D -u ${MY_UID} ${MY_USER}
+fi
+
+# Create necessary directories and set permissions
+mkdir -p /home/ansible/.gnupg /home/ansible/.ssh /etc/sudoers.d/
+chown ${MY_USER}:${MY_GROUP} /home/ansible/.gnupg /home/ansible/.ssh
+chmod 0700 /home/ansible/.gnupg /home/ansible/.ssh
+echo $MY_USER ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$MY_USER
+chmod 0440 /etc/sudoers.d/$MY_USER
+EOF
+
+# Additional binaries
+RUN apk add --no-cache \
+	bash \
+	git \
+	gnupg \
+	jq \
+	openssh-client \
+	sudo \
+	yq
+
+COPY --from=builder /ansible_tools.pex /usr/local/bin/ansible_tools
+COPY ./data/docker-entrypoint.sh /docker-entrypoint.sh
+
+WORKDIR /data
+
+USER ${MY_USER}
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["/bin/bash"]
+
 # https://github.com/opencontainers/image-spec/blob/master/annotations.md
-#LABEL "org.opencontainers.image.created"=""
-#LABEL "org.opencontainers.image.version"=""
-#LABEL "org.opencontainers.image.revision"=""
 LABEL "maintainer"="cytopia <cytopia@everythingcli.org>"
 LABEL "org.opencontainers.image.authors"="cytopia <cytopia@everythingcli.org>"
 LABEL "org.opencontainers.image.vendor"="cytopia"
@@ -69,40 +109,3 @@ LABEL "org.opencontainers.image.source"="https://github.com/cytopia/docker-ansib
 LABEL "org.opencontainers.image.ref.name"="Ansible ${VERSION} tools"
 LABEL "org.opencontainers.image.title"="Ansible ${VERSION} tools"
 LABEL "org.opencontainers.image.description"="Ansible ${VERSION} tools"
-
-# Define uid/gid and user/group names
-ENV \
-	MY_USER=ansible \
-	MY_GROUP=ansible \
-	MY_UID=1000 \
-	MY_GID=1000
-
-# Add user and group
-RUN set -eux \
-	&& addgroup -g ${MY_GID} ${MY_GROUP} \
-	&& adduser -h /home/ansible -s /bin/bash -G ${MY_GROUP} -D -u ${MY_UID} ${MY_USER} \
-	\
-	&& mkdir /home/ansible/.gnupg \
-	&& chown ansible:ansible /home/ansible/.gnupg \
-	&& chmod 0700 /home/ansible/.gnupg \
-	\
-	&& mkdir /home/ansible/.ssh \
-	&& chown ansible:ansible /home/ansible/.ssh \
-	&& chmod 0700 /home/ansible/.ssh
-
-# Additional binaries
-RUN set -eux \
-	&& apk add --no-cache \
-		bash \
-		git \
-		gnupg \
-		jq \
-		openssh-client
-
-COPY --from=builder /usr/lib/python3.10/site-packages/ /usr/lib/python3.10/site-packages/
-COPY --from=builder /usr/bin/yq /usr/bin/yq
-COPY ./data/docker-entrypoint.sh /docker-entrypoint.sh
-
-WORKDIR /data
-ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["/bin/bash"]
