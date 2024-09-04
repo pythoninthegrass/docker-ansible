@@ -55,6 +55,8 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=on
 ENV PIP_DEFAULT_TIMEOUT=100
 ENV PATH="/usr/local/bin:${HOME}/.local/bin:/bin:/usr/bin:/usr/share/doc:$PATH"
 
+# TODO: fix build.sh / GHA heredoc error
+# ! 'ERROR: failed to solve: process "/bin/sh -c /dev/pipes/EOF" did not complete successfully: exit code: 127'
 # Add user and group
 RUN <<EOF
 #!/bin/bash
@@ -89,7 +91,7 @@ RUN apk add --no-cache \
 	yq
 
 COPY --from=builder /ansible_tools.pex /usr/local/bin/ansible_tools
-COPY ./data/docker-entrypoint.sh /docker-entrypoint.sh
+COPY docker-entrypoint.sh /docker-entrypoint.sh
 
 WORKDIR /data
 
