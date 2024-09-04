@@ -38,7 +38,7 @@ get_platform() {
 			arch="amd64"
 			;;
 		aarch64|arm64)
-			arch="arm64"
+			arch="arm64/v8"
 			;;
 		armv7l)
 			arch="arm/v7"
@@ -53,32 +53,49 @@ get_platform() {
 }
 
 build() {
-	local dockerfile="$1"
-	local service="$2"
-	local platform="${PLATFORM:-$(get_platform)}"
+	local dockerfile
+	local platform
+	local registry
+	local service
 	local tag
+	local user_name
+	local version
+	local work_dir
 
-	if [[ -n "${REGISTRY}" && -n "${USER_NAME}" ]]; then
-		tag="${REGISTRY}/${USER_NAME}/${service}"
+	dockerfile="$1"
+	service="$2"
+	work_dir="${WORK_DIR}"
+	platform="${PLATFORM:-$(get_platform)}"
+	registry="${REGISTRY}"
+	user_name="${USER_NAME}"
+	version="${VERSION}"
+
+	if [[ -n "${registry}" && -n "${user_name}" ]]; then
+		tag="${registry}/${user_name}/${service}:${version}"
 	else
-		tag="${service}"
+		tag="${service}:${version}"
 	fi
 
 	if [[ "${platform}" != "$(get_platform)" ]]; then
-		docker buildx build \
-			--platform="${platform}" \
-			-f "${dockerfile}" \
-			--build-arg VERSION="${VERSION}" \
-			-t "${tag}" \
-			--load \
-			"${WORK_DIR}"
+		(
+			cd "${work_dir}"
+			docker buildx build \
+				--platform="${platform}" \
+				-f "${dockerfile}" \
+				--build-arg VERSION="${version}" \
+				-t "${tag}" \
+				--load \
+				.
+		)
 	else
-		docker build \
-			--platform="${platform}" \
-			-f "${dockerfile}" \
-			--build-arg VERSION="${VERSION}" \
-			-t "${tag}" \
-			"${WORK_DIR}"
+		(
+			cd "${work_dir}"
+			docker build \
+				-f "${dockerfile}" \
+				--build-arg VERSION="${version}" \
+				-t "${tag}" \
+				.
+		)
 	fi
 }
 
@@ -89,31 +106,70 @@ usage() {
 	echo "  -h, --help                 Display this help message"
 }
 
+# TODO: qa `getopts`
 main() {
-	local PLATFORM=""
-	local POSITIONAL=()
+	# local positional=()
 
-	while [[ $# -gt 0 ]]; do
-		case "$1" in
-			-p|--platform)
-				PLATFORM="$2"
-				shift 2
-				;;
-			-h|--help)
+	# while [[ $# -gt 0 ]]; do
+	# 	case "$1" in
+	# 		-p|--platform)
+	# 			PLATFORM="$2"
+	# 			shift 2
+	# 			;;
+	# 		-h|--help)
+	# 			usage
+	# 			exit 0
+	# 			;;
+	# 		build)
+	# 			shift
+	# 			;;
+	# 		*)
+	# 			positional+=("$1")
+	# 			shift
+	# 			;;
+	# 	esac
+	# done
+
+	# set -- "${positional[@]}"
+
+	while getopts ":hp:-:" opt; do
+		case ${opt} in
+			h)
 				usage
 				exit 0
 				;;
-			build)
-				shift
+			p)
+				PLATFORM="$OPTARG"
 				;;
-			*)
-				POSITIONAL+=("$1")
-				shift
+			-)
+				case "${OPTARG}" in
+					help)
+						usage
+						exit 0
+						;;
+					platform)
+						PLATFORM="${!OPTIND}"; OPTIND=$(( OPTIND + 1 ))
+						;;
+					*)
+						echo "Invalid option: --${OPTARG}" >&2
+						usage
+						exit 1
+						;;
+				esac
+				;;
+			\?)
+				echo "Invalid option: -$OPTARG" >&2
+				usage
+				exit 1
+				;;
+			:)
+				echo "Option -$OPTARG requires an argument." >&2
+				usage
+				exit 1
 				;;
 		esac
 	done
-
-	set -- "${POSITIONAL[@]}"
+	shift $((OPTIND -1))
 
 	if [[ $# -lt 2 ]]; then
 		echo "Error: Missing required arguments." >&2

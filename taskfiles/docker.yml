@@ -5,7 +5,7 @@ shopt: ['globstar']
 
 env:
   BUILD: "{{.TLD}}/bin/build.sh"
-  # COMPOSE_FILE: "{{.TLD}}/docker-compose.yml"
+  COMPOSE_FILE: "{{.TLD}}/docker-compose.yml"
   DOCKERFILE: "{{.TLD}}/Dockerfiles/Dockerfile-tools"
   REGISTRY:
    sh: echo "${REGISTRY:-ghcr.io}"
@@ -14,7 +14,9 @@ env:
   SERVICE:
     sh: echo "${SERVICE:-ansible}"
   PLATFORM:
-    sh: echo "${PLATFORM:-linux/arm64/v8}"
+    sh: echo "${PLATFORM:-linux/amd64}"
+  VERSION:
+    sh: echo "${VERSION:-latest-tools}"
 
 tasks:
   build:
@@ -22,18 +24,17 @@ tasks:
     summary: |
       Build the docker image with the specified dockerfile.
 
-      The default dockerfile is `Dockerfile`.
+      The default dockerfile is `Dockerfile-tools`.
 
       USAGE
         task docker:build             # default image
     cmds:
       - |
-        args={{.CLI_ARGS}}
-        if [[ -z "$args" ]]; then
-          args={{.DOCKERFILE}}
+        if [[ -z "{{.CLI_ARGS}}" ]]; then
+          {{.BUILD}} {{.DOCKERFILE}} {{.SERVICE}}
+        else
+          {{.BUILD}} {{.CLI_ARGS}} {{.SERVICE}}
         fi
-        {{.BUILD}} ${args} {{.SERVICE}}
-    dir: "{{.TLD}}/Dockerfiles"
 
   login:
     desc: "Login to the container registry"

@@ -55,29 +55,25 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=on
 ENV PIP_DEFAULT_TIMEOUT=100
 ENV PATH="/usr/local/bin:${HOME}/.local/bin:/bin:/usr/bin:/usr/share/doc:$PATH"
 
-# TODO: fix build.sh / GHA heredoc error
-# ! 'ERROR: failed to solve: process "/bin/sh -c /dev/pipes/EOF" did not complete successfully: exit code: 127'
 # Add user and group
 RUN <<EOF
 #!/bin/bash
 set -eux
 
-# Add group if it doesn't exist
-if ! getent group ${MY_GROUP} > /dev/null 2>&1; then
-    addgroup -g ${MY_GID} ${MY_GROUP}
+if ! getent group "${MY_GROUP}" > /dev/null 2>&1; then
+    addgroup -g "${MY_GID}" "${MY_GROUP}"
 fi
 
-# Add user if it doesn't exist
-if ! getent passwd ${MY_USER} > /dev/null 2>&1; then
-    adduser -h /home/ansible -s /bin/bash -G ${MY_GROUP} -D -u ${MY_UID} ${MY_USER}
+if ! getent passwd "${MY_USER}" > /dev/null 2>&1; then
+    adduser -h /home/ansible -s /bin/bash -G "${MY_GROUP}" -D -u "${MY_UID}" "${MY_USER}"
 fi
 
 # Create necessary directories and set permissions
 mkdir -p /home/ansible/.gnupg /home/ansible/.ssh /etc/sudoers.d/
-chown ${MY_USER}:${MY_GROUP} /home/ansible/.gnupg /home/ansible/.ssh
+chown "${MY_USER}:${MY_GROUP}" /home/ansible/.gnupg /home/ansible/.ssh
 chmod 0700 /home/ansible/.gnupg /home/ansible/.ssh
-echo $MY_USER ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$MY_USER
-chmod 0440 /etc/sudoers.d/$MY_USER
+echo "$MY_USER ALL=(root) NOPASSWD:ALL" > "/etc/sudoers.d/$MY_USER"
+chmod 0440 "/etc/sudoers.d/$MY_USER"
 EOF
 
 # Additional binaries
